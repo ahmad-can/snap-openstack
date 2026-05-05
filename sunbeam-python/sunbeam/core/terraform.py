@@ -769,7 +769,13 @@ class TerraformHelper:
             LOG.debug(f"stderr: {stderr_output}")
 
         if process.returncode != 0:
-            if state_lock_flag[0] or "remote state already locked" in stderr_output:
+            state_conflict = (
+                state_lock_flag[0]
+                or "remote state already locked" in stderr_output
+                or "HTTP error: 409" in stderr_output
+                or "Unexpected HTTP response code 409" in stderr_output
+            )
+            if state_conflict:
                 raise TerraformStateLockedException(
                     f"terraform command failed (state locked): {' '.join(cmd)}\n"
                     f"stderr: {stderr_output}"

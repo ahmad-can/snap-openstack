@@ -1209,3 +1209,291 @@ class TestRunTerraformCommand:
                 env={},
                 reporter=None,
             )
+
+
+class TestRunTerraformCommandStateSave409:
+    """Tests reproducing Bug #2145157: HTTP 409 state save error on parallel join.
+
+    When multiple 'sunbeam cluster join' commands run simultaneously, concurrent
+    terraform apply operations share the same clusterd HTTP state backend.  After
+    successfully modifying Juju resources, Terraform tries to PUT the new state via
+    the HTTP backend.  If two processes race on that PUT the backend returns HTTP 409,
+    causing Terraform to:
+
+      1. Fail to persist state  ("Error: Failed to save state / HTTP error: 409")
+      2. Also fail to release the lock ("Error releasing the state lock /
+         Unexpected HTTP response code 409")
+
+    The bug: _run_terraform_command only checks for "remote state already locked"
+    in stderr, so the 409 state-*save* error falls through to the generic
+    TerraformException path.  Higher-level callers that catch
+    TerraformStateLockedException to trigger a retry therefore never retry, and
+    the cluster join step reports ResultType.FAILED.
+
+    These tests describe the *correct* desired behaviour after the fix.  They
+    currently FAIL (demonstrating the bug) and will PASS once the code detects
+    "HTTP error: 409" / "Unexpected HTTP response code 409" in the state-save /
+    lock-release context and raises TerraformStateLockedException.
+    """
+
+    # ------------------------------------------------------------------ helpers
+
+    def _make_helper(self, mocker, snap, tmp_path):
+        mocker.patch.object(terraform_mod, "Snap", return_value=snap)
+        return TerraformHelper(
+            path=tmp_path,
+            plan="sunbeam-machine",
+            tfvar_map={},
+        )
+
+    @staticmethod
+    def _state_save_409_stderr() -> str:
+        """Exact stderr text captured in Bug #2145157 (state-save failure)."""
+        return (
+            "Error: Failed to save state\n"
+            "\n"
+            "Error saving state: HTTP error: 409\n"
+            "\n"
+            "Error: Failed to persist state to backend\n"
+            "\n"
+            "The error shown above has prevented Terraform from writing the updated state\n"
+            "to the configured backend. To allow for recovery, the state has been written\n"
+            'to the file "errored.tfstate" in the current working directory.\n'
+            "\n"
+            'Running "terraform apply" again at this point will create a forked state,\n'
+            "making it harder to recover.\n"
+            "\n"
+            "To retry writing this state, use the following command:\n"
+            "    terraform state push errored.tfstate\n"
+        )
+
+    @staticmethod
+    def _lock_release_409_stderr() -> str:
+        """Exact stderr text captured in Bug #2145157 (lock-release failure)."""
+        return (
+            "Error: Error releasing the state lock\n"
+            "\n"
+            "Error message: Unexpected HTTP response code 409\n"
+            "\n"
+            "Terraform acquires a lock when accessing your state to prevent others\n"
+            "running Terraform to potentially modify the state at the same time. An\n"
+            "error occurred while releasing this lock. This could mean that the lock\n"
+            "did or did not release properly. If the lock didn't release properly,\n"
+            "Terraform may not be able to run future commands since it'll appear as if\n"
+            "the lock is held.\n"
+            "\n"
+            'In this scenario, please call the "force-unlock" command to unlock the\n'
+            "state manually. This is a very dangerous operation since if it is done\n"
+            "erroneously it could result in two people modifying state at the same time.\n"
+            "Only call this command if you're certain that the unlock above failed and\n"
+            "that no one else is holding a lock.\n"
+        )
+
+    @staticmethod
+    def _apply_complete_json_line() -> str:
+        """JSON event emitted when terraform apply succeeds for the resource."""
+        return (
+            json.dumps(
+                {
+                    "type": "apply_complete",
+                    "@message": "juju_application.sunbeam-machine: Modifications complete after 0s",
+                    "@timestamp": "2026-03-22T23:14:47.863Z",
+                    "hook": {
+                        "resource": {
+                            "addr": "juju_application.sunbeam-machine",
+                            "resource_type": "juju_application",
+                            "resource_name": "sunbeam-machine",
+                        },
+                        "action": "update",
+                        "elapsed_seconds": 0,
+                    },
+                }
+            )
+            + "\n"
+        )
+
+    # ------------------------------------------------------------------ tests
+
+    def test_state_save_http_409_raises_state_locked_exception(
+        self, mocker, snap, tmp_path
+    ):
+        """'HTTP error: 409' on state save must raise TerraformStateLockedException.
+
+        Terraform finishes the apply (resource update succeeds) but cannot write
+        the updated state back to the HTTP backend because another parallel apply
+        holds the state object.  The 409 is a concurrency conflict, not a hard
+        failure, so it should be surfaced as TerraformStateLockedException to allow
+        retry logic at the caller level.
+
+        Bug #2145157: currently raises generic TerraformException.
+        """
+        helper = self._make_helper(mocker, snap, tmp_path)
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([self._apply_complete_json_line()])
+        mock_process.stderr.read.return_value = self._state_save_409_stderr()
+        mock_process.wait.return_value = 1
+        mock_process.returncode = 1
+
+        with (
+            patch("subprocess.Popen", return_value=mock_process),
+            pytest.raises(TerraformStateLockedException),
+        ):
+            helper._run_terraform_command(
+                cmd=["terraform", "apply", "-json"],
+                env={},
+            )
+
+    def test_lock_release_http_409_raises_state_locked_exception(
+        self, mocker, snap, tmp_path
+    ):
+        """Lock-release HTTP 409 must raise TerraformStateLockedException.
+
+        After a concurrent state-save conflict the backend may also return 409 when
+        Terraform tries to release the advisory lock.  This is part of the same
+        parallel-join race and should be treated identically.
+
+        Bug #2145157: currently raises generic TerraformException.
+        """
+        helper = self._make_helper(mocker, snap, tmp_path)
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([])
+        mock_process.stderr.read.return_value = self._lock_release_409_stderr()
+        mock_process.wait.return_value = 1
+        mock_process.returncode = 1
+
+        with (
+            patch("subprocess.Popen", return_value=mock_process),
+            pytest.raises(TerraformStateLockedException),
+        ):
+            helper._run_terraform_command(
+                cmd=["terraform", "apply", "-json"],
+                env={},
+            )
+
+    def test_combined_state_save_and_lock_release_409_raises_state_locked_exception(
+        self, mocker, snap, tmp_path
+    ):
+        """Both state-save and lock-release 409 errors (full output from Bug #2145157).
+
+        The real-world failure emits both error blocks in a single stderr stream.
+        Either pattern alone must be enough to raise TerraformStateLockedException.
+        """
+        helper = self._make_helper(mocker, snap, tmp_path)
+
+        combined_stderr = (
+            self._state_save_409_stderr() + "\n" + self._lock_release_409_stderr()
+        )
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([self._apply_complete_json_line()])
+        mock_process.stderr.read.return_value = combined_stderr
+        mock_process.wait.return_value = 1
+        mock_process.returncode = 1
+
+        with (
+            patch("subprocess.Popen", return_value=mock_process),
+            pytest.raises(TerraformStateLockedException),
+        ):
+            helper._run_terraform_command(
+                cmd=["terraform", "apply", "-json"],
+                env={},
+            )
+
+    def test_unrelated_http_409_from_provider_raises_generic_exception(
+        self, mocker, snap, tmp_path
+    ):
+        """A provider-level 409 (not state-save) must raise generic TerraformException.
+
+        This guards against over-broad matching: only the known state-save /
+        lock release 409 patterns should promote to TerraformStateLockedException.
+        """
+        helper = self._make_helper(mocker, snap, tmp_path)
+
+        # Provider-level 409, no "Failed to save state" or lock-release language
+        unrelated_stderr = "Error: error creating application: POST https://example.com/api: 409 Conflict\n"
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([])
+        mock_process.stderr.read.return_value = unrelated_stderr
+        mock_process.wait.return_value = 1
+        mock_process.returncode = 1
+
+        with (
+            patch("subprocess.Popen", return_value=mock_process),
+            pytest.raises(TerraformException),
+        ):
+            helper._run_terraform_command(
+                cmd=["terraform", "apply", "-json"],
+                env={},
+            )
+
+    def test_parallel_apply_conflict_node_raises_state_locked_exception(
+        self, mocker, snap, tmp_path
+    ):
+        """Simulate two concurrent cluster-join applies where the second gets HTTP 409.
+
+        This is the exact scenario from Bug #2145157: node-1 and node-2 run
+        'sunbeam cluster join' simultaneously.  Both terraform applies modify the
+        juju_application resource successfully, but only node-1 manages to save
+        the state; node-2 gets HTTP 409.
+
+        After the fix, node-2's _run_terraform_command must raise
+        TerraformStateLockedException (not TerraformException) so that higher-level
+        retry logic can re-run the deploy step.
+        """
+        import threading
+
+        helper1 = self._make_helper(mocker, snap, tmp_path)
+        helper2 = self._make_helper(mocker, snap, tmp_path)
+
+        # Node 1: apply succeeds and state is saved successfully
+        success_process = MagicMock()
+        success_process.stdout = iter([self._apply_complete_json_line()])
+        success_process.stderr.read.return_value = ""
+        success_process.wait.return_value = 0
+        success_process.returncode = 0
+
+        # Node 2: apply completes but state save returns HTTP 409 (race)
+        conflict_process = MagicMock()
+        conflict_process.stdout = iter([self._apply_complete_json_line()])
+        conflict_process.stderr.read.return_value = (
+            self._state_save_409_stderr() + "\n" + self._lock_release_409_stderr()
+        )
+        conflict_process.wait.return_value = 1
+        conflict_process.returncode = 1
+
+        results: dict[str, Exception | None] = {}
+
+        def run_apply(helper, process, key):
+            with patch("subprocess.Popen", return_value=process):
+                try:
+                    helper._run_terraform_command(
+                        cmd=["terraform", "apply", "-json"],
+                        env={},
+                    )
+                    results[key] = None
+                except Exception as exc:
+                    results[key] = exc
+
+        t1 = threading.Thread(
+            target=run_apply, args=(helper1, success_process, "node1")
+        )
+        t2 = threading.Thread(
+            target=run_apply, args=(helper2, conflict_process, "node2")
+        )
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        # Node 1 should succeed without any exception
+        assert results.get("node1") is None, (
+            f"node1 should succeed but raised: {results.get('node1')}"
+        )
+        # Node 2 should raise TerraformStateLockedException, not TerraformException
+        assert isinstance(results.get("node2"), TerraformStateLockedException), (
+            "Expected TerraformStateLockedException for node2 (HTTP 409 state save), "
+            f"but got {type(results.get('node2'))}: {results.get('node2')}"
+        )
