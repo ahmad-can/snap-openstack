@@ -827,9 +827,9 @@ def bootstrap(  # noqa: C901
 
     plan1: list[BaseStep] = []
 
-    microovn_tfhelper = deployment.get_tfhelper("microovn-plan")
     microovn_necessary = ovn_manager.is_microovn_necessary(roles)
     if microovn_necessary:
+        microovn_tfhelper = deployment.get_tfhelper("microovn-plan")
         role_distributor_tfhelper = deployment.get_tfhelper("role-distributor-plan")
         plan1.append(TerraformInitStep(role_distributor_tfhelper))
         plan1.append(

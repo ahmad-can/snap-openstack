@@ -520,6 +520,30 @@ class JujuHelper:
         with self._model(model) as juju:
             juju.model_config(config)
 
+    def get_model_constraints(self, model: str) -> dict:
+        """Return model constraints for the given model."""
+        with self._model(model) as juju:
+            return typing.cast(
+                dict,
+                self.cli(
+                    "model-constraints",
+                    juju=juju,
+                    include_controller=False,
+                ),
+            )
+
+    def set_model_constraints(self, model: str, constraints: dict[str, str]) -> None:
+        """Set model constraints for the given model."""
+        args = [f"{key}={value}" for key, value in constraints.items()]
+        with self._model(model) as juju:
+            self.cli(
+                "set-model-constraints",
+                *args,
+                json_format=False,
+                juju=juju,
+                include_controller=False,
+            )
+
     def deploy(
         self,
         name: str,
