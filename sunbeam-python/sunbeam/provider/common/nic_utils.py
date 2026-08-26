@@ -234,7 +234,7 @@ def record_remote_managed_vf(
         "vendor_id": vf_nic["vendor_id"].replace("0x", ""),
         "product_id": vf_nic["product_id"].replace("0x", ""),
         "physical_network": None,
-        "remote_managed": True,
+        "remote_managed": "true",
     }
 
     # Avoid exact duplicates if the same VF is encountered more than once.

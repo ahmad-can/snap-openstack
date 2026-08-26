@@ -29,7 +29,7 @@ class TestWhitelistRemoteManagedVf:
                 "vendor_id": "15b3",
                 "product_id": "101e",
                 "physical_network": None,
-                "remote_managed": True,
+                "remote_managed": "true",
             }
         ]
 
