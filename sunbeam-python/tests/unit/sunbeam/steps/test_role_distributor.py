@@ -71,7 +71,9 @@ class TestDeployRoleDistributorApplicationStep:
         basic_manifest,
         test_model,
     ):
-        # DPUs move to microovn-<arch>; the amd64 DPU must not fall back to microovn.
+        # Grouping is purely by architecture: non-default archs go to
+        # microovn-<arch>, amd64 goes to the default microovn application,
+        # regardless of is_dpu.
         basic_deployment.get_ovn_manager.return_value.get_machines.return_value = [
             "0",
             "5",
@@ -109,14 +111,13 @@ class TestDeployRoleDistributorApplicationStep:
         )["openstack-machines"]
 
         assert machines["microovn"]["machines"] == {
-            "0": {"roles": ["chassis", "central"]}
+            "0": {"roles": ["chassis", "central"]},
+            "6": {"roles": ["chassis", "gateway"]},
         }
         assert machines["microovn-arm64"]["machines"] == {
             "5": {"roles": ["chassis", "gateway"]}
         }
-        assert machines["microovn-amd64"]["machines"] == {
-            "6": {"roles": ["chassis", "gateway"]}
-        }
+        assert "microovn-amd64" not in machines
 
     def test_get_accepted_application_status_allows_waiting(
         self,
