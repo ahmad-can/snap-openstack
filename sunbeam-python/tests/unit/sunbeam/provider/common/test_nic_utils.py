@@ -16,14 +16,14 @@ class TestWhitelistRemoteManagedVf:
         }
 
     def test_builds_remote_managed_spec_with_address_and_null_physnet(self):
-        pci_whitelist: list[dict] = []
+        pci_allowedlist: list[dict] = []
         excluded_devices: dict[str, list] = {}
 
         nic_utils.record_remote_managed_vf(
-            "compute-1", self._vf(), pci_whitelist, excluded_devices, "physnet1"
+            "compute-1", self._vf(), pci_allowedlist, excluded_devices, "physnet1"
         )
 
-        assert pci_whitelist == [
+        assert pci_allowedlist == [
             {
                 "address": "0000:41:00.3",
                 "vendor_id": "15b3",
@@ -34,19 +34,19 @@ class TestWhitelistRemoteManagedVf:
         ]
 
     def test_keeps_one_spec_per_vf_address(self):
-        pci_whitelist: list[dict] = []
+        pci_allowedlist: list[dict] = []
         excluded_devices: dict[str, list] = {}
 
         for func in (3, 4, 5, 6):
             nic_utils.record_remote_managed_vf(
                 "compute-1",
                 self._vf(pci_address=f"0000:41:00.{func}"),
-                pci_whitelist,
+                pci_allowedlist,
                 excluded_devices,
                 "physnet1",
             )
 
-        assert [spec["address"] for spec in pci_whitelist] == [
+        assert [spec["address"] for spec in pci_allowedlist] == [
             "0000:41:00.3",
             "0000:41:00.4",
             "0000:41:00.5",
@@ -54,21 +54,21 @@ class TestWhitelistRemoteManagedVf:
         ]
 
     def test_ignores_maas_physnet_for_remote_managed_vfs(self):
-        pci_whitelist: list[dict] = []
+        pci_allowedlist: list[dict] = []
         excluded_devices: dict[str, list] = {}
 
         nic_utils.record_remote_managed_vf(
-            "compute-1", self._vf(), pci_whitelist, excluded_devices, "physnet1"
+            "compute-1", self._vf(), pci_allowedlist, excluded_devices, "physnet1"
         )
 
-        assert pci_whitelist[0]["physical_network"] is None
+        assert pci_allowedlist[0]["physical_network"] is None
 
     def test_removes_vf_from_exclusion_list(self):
-        pci_whitelist: list[dict] = []
+        pci_allowedlist: list[dict] = []
         excluded_devices: dict[str, list] = {"compute-1": ["0000:41:00.3"]}
 
         nic_utils.record_remote_managed_vf(
-            "compute-1", self._vf(), pci_whitelist, excluded_devices, "physnet1"
+            "compute-1", self._vf(), pci_allowedlist, excluded_devices, "physnet1"
         )
 
         assert "0000:41:00.3" not in excluded_devices["compute-1"]

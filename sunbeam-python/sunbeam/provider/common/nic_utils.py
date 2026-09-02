@@ -62,7 +62,7 @@ def get_nic_str_repr(nic: dict):
 def is_sriov_nic_whitelisted(
     node_name: str,
     nic: dict,
-    pci_whitelist: list[dict],
+    pci_allowedlist: list[dict],
     excluded_devices: dict[str, list],
 ) -> Tuple[bool, str | None]:
     """Returns the (is_whitelisted>, physnet) tuple."""
@@ -72,7 +72,7 @@ def is_sriov_nic_whitelisted(
     if pci_address in node_excluded_devices:
         return False, None
 
-    for spec_dict in pci_whitelist:
+    for spec_dict in pci_allowedlist:
         if not isinstance(spec_dict, dict):
             raise ValueError("Invalid device spec, expecting a dict: %s." % spec_dict)
 
@@ -93,7 +93,7 @@ def is_sriov_nic_whitelisted(
 def is_pci_device_whitelisted(
     node_name: str,
     device: dict,
-    pci_whitelist: list[dict],
+    pci_allowedlist: list[dict],
     excluded_devices: dict[str, list],
 ) -> bool:
     """Returns True if pci device is whitelisted."""
@@ -103,7 +103,7 @@ def is_pci_device_whitelisted(
     if pci_address in node_excluded_devices:
         return False
 
-    for spec_dict in pci_whitelist:
+    for spec_dict in pci_allowedlist:
         if not isinstance(spec_dict, dict):
             raise ValueError("Invalid device spec, expecting a dict: %s." % spec_dict)
 
@@ -123,7 +123,7 @@ def is_pci_device_whitelisted(
 def whitelist_pci_passthrough_device(
     node_name: str,
     device: dict,
-    pci_whitelist: list[dict],
+    pci_allowedlist: list[dict],
     excluded_devices: dict[str, list],
 ):
     pci_address = device["pci_address"]
@@ -132,13 +132,13 @@ def whitelist_pci_passthrough_device(
     node_excluded_devices = excluded_devices.get(node_name) or []
     if pci_address in node_excluded_devices:
         # If user excludes a PCI device via manifest, do not add
-        # the device in pci_whitelist
+        # the device in pci_allowedlist
         LOG.debug("PCI device excluded: %s", pci_address)
         return
 
     # Update the global whitelist if needed.
     whitelisted = is_pci_device_whitelisted(
-        node_name, device, pci_whitelist, excluded_devices
+        node_name, device, pci_allowedlist, excluded_devices
     )
     if not whitelisted:
         new_dev_spec = {
@@ -146,7 +146,7 @@ def whitelist_pci_passthrough_device(
             "vendor_id": device["vendor_id"].replace("0x", ""),
             "product_id": device["product_id"].replace("0x", ""),
         }
-        pci_whitelist.append(new_dev_spec)
+        pci_allowedlist.append(new_dev_spec)
     else:
         LOG.debug("PCI device already whitelisted: %s", pci_address)
 
@@ -154,7 +154,7 @@ def whitelist_pci_passthrough_device(
 def whitelist_sriov_nic(
     node_name: str,
     nic: dict,
-    pci_whitelist: list[dict],
+    pci_allowedlist: list[dict],
     excluded_devices: dict[str, list],
     physnet: str | None,
 ):
@@ -172,7 +172,7 @@ def whitelist_sriov_nic(
 
     # Update the global whitelist if needed.
     whitelisted = is_sriov_nic_whitelisted(
-        node_name, nic, pci_whitelist, excluded_devices
+        node_name, nic, pci_allowedlist, excluded_devices
     )[0]
     if not whitelisted:
         # Openstack expects this to be null when using hw offloading
@@ -189,7 +189,7 @@ def whitelist_sriov_nic(
             "product_id": nic["product_id"].replace("0x", ""),
             "physical_network": physnet,
         }
-        pci_whitelist.append(new_dev_spec)
+        pci_allowedlist.append(new_dev_spec)
     else:
         LOG.debug(
             "SR-IOV nic already whitelisted: %s %s", nic["name"], nic["pci_address"]
@@ -199,7 +199,7 @@ def whitelist_sriov_nic(
 def record_remote_managed_vf(
     node_name: str,
     vf_nic: dict,
-    pci_whitelist: list[dict],
+    pci_allowedlist: list[dict],
     excluded_devices: dict[str, list],
     physnet: str | None,
 ):
@@ -211,7 +211,6 @@ def record_remote_managed_vf(
     remote_managed tag. The MAAS physnet tag only selects the PF; remote-managed
     VF specs always use a null physical network.
 
-    https://docs.openstack.org/neutron/2024.1/admin/ovn/smartnic_dpu.html
     """
     pci_address = vf_nic["pci_address"]
     LOG.debug(
@@ -229,6 +228,18 @@ def record_remote_managed_vf(
         )
         node_excluded_devices.remove(pci_address)
 
+    whitelisted = is_sriov_nic_whitelisted(
+        node_name, vf_nic, pci_allowedlist, excluded_devices
+    )[0]
+    if whitelisted:
+        LOG.debug("Remote-managed VF already whitelisted: %s", pci_address)
+        return
+
+    # list-nics reports vendor_id/product_id in the standard Linux PCI ID
+    # format, e.g. "0x15b3" (sysfs/lspci-style). Nova's [pci] device_spec
+    # expects the plain hex string with no "0x" prefix, e.g. "15b3" -- see
+    # the passthrough_whitelist examples here:
+    # https://docs.openstack.org/neutron/latest/admin/ovn/smartnic_dpu.html#nova-configuration
     new_dev_spec = {
         "address": pci_address,
         "vendor_id": vf_nic["vendor_id"].replace("0x", ""),
@@ -237,12 +248,7 @@ def record_remote_managed_vf(
         "remote_managed": "true",
     }
 
-    # Avoid exact duplicates if the same VF is encountered more than once.
-    if new_dev_spec in pci_whitelist:
-        LOG.debug("Remote-managed VF spec already recorded: %s", pci_address)
-        return
-
-    pci_whitelist.append(new_dev_spec)
+    pci_allowedlist.append(new_dev_spec)
 
 
 def exclude_sriov_nic(

@@ -2716,9 +2716,9 @@ class TestMaasConfigSRIOVStepDPU:
             ),
             patch.object(maas_steps.nic_utils, "fetch_nics", return_value=host_nics),
         ):
-            pci_whitelist, _ = step._get_pci_config(compute_machines)
+            pci_allowedlist, _ = step._get_pci_config(compute_machines)
 
-        assert pci_whitelist == [
+        assert pci_allowedlist == [
             {
                 "address": "0000:41:00.3",
                 "vendor_id": "15b3",
