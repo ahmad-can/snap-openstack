@@ -16,9 +16,11 @@ MICROOVN_APPLICATION = "microovn"
 def microovn_application_name_for_node(node: dict) -> str:
     """Return the MicroOVN application a node's unit belongs to.
 
-    The application is chosen purely by architecture, matching the deployment
-    naming: the default architecture (amd64) is deployed as plain microovn,
-    and every other architecture gets a microovn-<arch> application.
+    Find the deployed MicroOVN juju application name based on architecture.
+    The name is dependent on the architecture of the machine is it deployed
+    on. For backwards compatibility and upgrade reasons, a juju application
+    cannot renamed, the amd64 version of the juju application does not include
+    an architecture in the name.
     """
     arch = node.get("arch") or DEFAULT_ARCHITECTURE
     if arch == DEFAULT_ARCHITECTURE:
