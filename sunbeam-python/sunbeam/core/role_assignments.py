@@ -22,7 +22,7 @@ def build_microovn_role_mapping(
 
     Machines are grouped by the MicroOVN application their unit belongs to, so
     the mapping keys line up with the deployed juju applications (microovn for
-    regular nodes, microovn-<arch> for DPUs).
+    amd64 nodes, microovn-<arch> for DPUs).
     """
     machine_roles_by_app: dict[str, dict[str, list[str]]] = {}
     microovn_machine_ids = {str(machine_id) for machine_id in machine_ids}
