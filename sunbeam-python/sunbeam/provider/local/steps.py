@@ -606,7 +606,7 @@ class LocalConfigSRIOVStep(BaseStep):
             ) from e
 
         for snap_gpu in snap_gpus["gpus"]:
-            nic_utils.whitelist_pci_passthrough_device(
+            nic_utils.allowedlist_pci_passthrough_device(
                 self.node_name, snap_gpu, pci_allowedlist, excluded_devices
             )
 
@@ -696,15 +696,17 @@ class LocalConfigSRIOVStep(BaseStep):
 
                 for nic in sriov_nics:
                     nic_str_repr = nic_utils.get_nic_str_repr(nic)
-                    whitelisted, physnet = nic_utils.is_sriov_nic_whitelisted(
+                    allowedlisted, physnet = nic_utils.is_sriov_nic_allowedlisted(
                         self.node_name, nic, pci_allowedlist, excluded_devices
                     )
 
-                    question = f"Add network adapter to PCI whitelist? {nic_str_repr} "
-                    should_whitelist = sunbeam.core.questions.ConfirmQuestion(
-                        question, default_value=whitelisted
+                    question = (
+                        f"Add network adapter to PCI allowedlist? {nic_str_repr} "
+                    )
+                    should_allowedlist = sunbeam.core.questions.ConfirmQuestion(
+                        question, default_value=allowedlisted
                     ).ask()
-                    if not should_whitelist:
+                    if not should_allowedlist:
                         nic_utils.exclude_sriov_nic(
                             self.node_name, nic, excluded_devices
                         )
@@ -719,7 +721,7 @@ class LocalConfigSRIOVStep(BaseStep):
                         question,
                         default_value=physnet,
                     ).ask()
-                    nic_utils.whitelist_sriov_nic(
+                    nic_utils.allowedlist_sriov_nic(
                         self.node_name, nic, pci_allowedlist, excluded_devices, physnet
                     )
 
@@ -740,10 +742,10 @@ class LocalConfigSRIOVStep(BaseStep):
         console.print("Found the following SR-IOV capable devices:")
 
         for nic in sriov_nics:
-            whitelisted, physnet = nic_utils.is_sriov_nic_whitelisted(
+            allowedlisted, physnet = nic_utils.is_sriov_nic_allowedlisted(
                 self.node_name, nic, pci_allowedlist, excluded_devices
             )
-            checkbox = "X" if whitelisted else " "
+            checkbox = "X" if allowedlisted else " "
             nic_str_repr = nic_utils.get_nic_str_repr(nic)
 
             nic_info = f"  \\[{checkbox}] {nic_str_repr} \\[physnet: {physnet}]"

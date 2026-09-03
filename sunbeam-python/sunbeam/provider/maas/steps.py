@@ -2521,7 +2521,7 @@ class MaasConfigSRIOVStep(BaseStep):
             node_name = machine["hostname"]
 
             # A DPU parent host claims the DPU's remote-managed VFs instead of
-            # doing regular SR-IOV whitelisting. The VF interfaces are reported by
+            # doing regular SR-IOV allowedlisting. The VF interfaces are reported by
             # the host's own openstack-hypervisor (name contains "vf").
             if machine.get("system_id") in dpu_parent_system_ids:
                 self._record_dpu_vfs(node_name, pci_allowedlist, excluded_devices)
@@ -2541,8 +2541,8 @@ class MaasConfigSRIOVStep(BaseStep):
                     continue
 
                 if nic_name in sriov_tagged_nics:
-                    # whitelisted through maas tag
-                    nic_utils.whitelist_sriov_nic(
+                    # allowedlisted through maas tag
+                    nic_utils.allowedlist_sriov_nic(
                         node_name,
                         snap_nic,
                         pci_allowedlist,
@@ -2574,7 +2574,7 @@ class MaasConfigSRIOVStep(BaseStep):
                 ) from e
 
             for snap_gpu in snap_gpus["gpus"]:
-                nic_utils.whitelist_pci_passthrough_device(
+                nic_utils.allowedlist_pci_passthrough_device(
                     node_name, snap_gpu, pci_allowedlist, excluded_devices
                 )
 

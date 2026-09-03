@@ -2682,7 +2682,7 @@ class TestMaasConfigSRIOVStepDPU:
             )
         return step
 
-    def test_dpu_parent_host_whitelists_only_vf_nics_as_remote_managed(self):
+    def test_dpu_parent_host_allowedlists_only_vf_nics_as_remote_managed(self):
         step = self._step()
         compute_machines = [{"system_id": "host-sid", "hostname": "compute-4"}]
 

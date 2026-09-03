@@ -4,7 +4,7 @@
 from sunbeam.provider.common import nic_utils
 
 
-class TestWhitelistRemoteManagedVf:
+class TestAllowedlistRemoteManagedVf:
     def _vf(self, pci_address="0000:41:00.3", vendor="0x15b3", product="0x101e"):
         return {
             "name": "ens1f0v0",
